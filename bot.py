@@ -1,36 +1,53 @@
+import os
 import asyncio
 import logging
-import os
+from threading import Thread
 from flask import Flask
-from pyrogram import Client, filters, idle
+from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ForceReply
 
-# ==================== CONFIGURATION FROM ENVIRONMENT ==================== #
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-
-api_id_env = os.getenv("API_ID", "0")
-API_ID = int(api_id_env) if api_id_env.isdigit() else 0
-
-API_HASH = os.getenv("API_HASH")
-
-admin_id_env = os.getenv("ADMIN_ID", "0")
-ADMIN_ID = int(admin_id_env) if admin_id_env.isdigit() else 0
-# ======================================================================== #
-
+# Logging setup
 logging.basicConfig(level=logging.INFO)
 
-# Flask Web Server (Render के लिए)
+# ==================== ENVIRONMENT VARIABLES ==================== #
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+API_ID = os.getenv("API_ID")
+API_HASH = os.getenv("API_HASH")
+ADMIN_ID = os.getenv("ADMIN_ID")
+
+# Basic validation check
+if API_ID:
+    API_ID = int(API_ID)
+if ADMIN_ID:
+    ADMIN_ID = int(ADMIN_ID)
+else:
+    ADMIN_ID = 0
+# =============================================================== #
+
+# Flask Web Server (Render Web Service के लिए)
 app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Bot is running 24/7!"
+    return "Bot is Live and Running 24/7!"
 
 def run_flask():
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
 
-# Telegram Bot Setup
+# Start Flask in a background thread
+flask_thread = Thread(target=run_flask)
+flask_thread.daemon = True
+flask_thread.start()
+
+# Pyrogram Client Setup
+bot = Client(
+    "auto_broadcast_bot",
+    api_id=API_ID,
+    api_hash=API_HASH,
+    bot_token=BOT_TOKEN
+)
+
 user_sessions = {}
 temp_login = {}
 
@@ -41,7 +58,6 @@ broadcast_config = {
 }
 
 broadcast_task = None
-bot = Client("admin_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 def main_keyboard():
     status = "🟢 Running" if broadcast_config["is_running"] else "🔴 Stopped"
@@ -73,18 +89,18 @@ async def start_command(client, message):
     user_id = message.from_user.id
     logging.info(f"Received /start from User ID: {user_id}")
     
-    # अगर ADMIN_ID सेट है और मैच नहीं हो रहा, तो बॉट आपकी सही ID बता देगा
+    # Admin verification
     if ADMIN_ID != 0 and user_id != ADMIN_ID:
         await message.reply_text(
             f"❌ **आप इस बॉट के एडमिन नहीं हैं!**\n\n"
-            f"आपकी असली Telegram User ID यह है: `{user_id}`\n"
-            f"कृपया इसे Render के Environment Variables में जाकर `ADMIN_ID` में सेट करें।"
+            f"आपकी Telegram User ID: `{user_id}`\n"
+            f"इसे Render के Environment Variables में `ADMIN_ID` के रूप में सेट करें।"
         )
         return
 
     await message.reply_text(
-        f"👋 **Multi-Account Auto Broadcaster Bot में आपका स्वागत है!**\n\n"
-        f"आपकी User ID: `{user_id}` (एडमिन)\n"
+        f"👋 **Auto Broadcaster Bot में आपका स्वागत है!**\n\n"
+        f"आपकी User ID: `{user_id}`\n"
         "नीचे दिए गए बटन्स का इस्तेमाल करके कंट्रोल करें:",
         reply_markup=main_keyboard()
     )
@@ -216,16 +232,6 @@ async def run_broadcast():
                 logging.error(f"Session error {phone}: {e}")
         await asyncio.sleep(broadcast_config["interval"])
 
-async def main():
-    import threading
-    t = threading.Thread(target=run_flask)
-    t.daemon = True
-    t.start()
-
-    await bot.start()
-    logging.info("Bot started successfully!")
-    await idle()
-    await bot.stop()
-
 if __name__ == "__main__":
-    asyncio.run(main())
+    logging.info("Starting Telegram Bot...")
+    bot.run()
