@@ -188,8 +188,19 @@ async def run_broadcast():
 
 if __name__ == "__main__":
     import threading
-    # Flask को background में चलाना
+    import asyncio
+
+    # Python 3.14 / Render ke Event Loop issue ko fix karne ke liye
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+    # Flask ko background thread me chalana
     t = threading.Thread(target=run_flask)
+    t.daemon = True
     t.start()
-    # Telegram Bot चलाना
+
+    # Telegram Bot chalana
     bot.run()
