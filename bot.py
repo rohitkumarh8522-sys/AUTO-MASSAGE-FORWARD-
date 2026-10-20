@@ -7,9 +7,14 @@ from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ForceRepl
 
 # ==================== CONFIGURATION FROM ENVIRONMENT ==================== #
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-API_ID = int(os.getenv("API_ID", "0"))
+
+api_id_env = os.getenv("API_ID", "0")
+API_ID = int(api_id_env) if api_id_env.isdigit() else 0
+
 API_HASH = os.getenv("API_HASH")
-ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
+
+admin_id_env = os.getenv("ADMIN_ID", "0")
+ADMIN_ID = int(admin_id_env) if admin_id_env.isdigit() else 0
 # ======================================================================== #
 
 logging.basicConfig(level=logging.INFO)
@@ -63,16 +68,34 @@ def main_keyboard():
         ]
     ])
 
-@bot.on_message(filters.command("start") & filters.user(ADMIN_ID))
+@bot.on_message(filters.command("start"))
 async def start_command(client, message):
+    user_id = message.from_user.id
+    logging.info(f"Received /start from User ID: {user_id}")
+    
+    # अगर ADMIN_ID सेट है और मैच नहीं हो रहा, तो बॉट आपकी सही ID बता देगा
+    if ADMIN_ID != 0 and user_id != ADMIN_ID:
+        await message.reply_text(
+            f"❌ **आप इस बॉट के एडमिन नहीं हैं!**\n\n"
+            f"आपकी असली Telegram User ID यह है: `{user_id}`\n"
+            f"कृपया इसे Render के Environment Variables में जाकर `ADMIN_ID` में सेट करें।"
+        )
+        return
+
     await message.reply_text(
-        "👋 **Multi-Account Auto Broadcaster Bot में आपका स्वागत है!**\n\n"
+        f"👋 **Multi-Account Auto Broadcaster Bot में आपका स्वागत है!**\n\n"
+        f"आपकी User ID: `{user_id}` (एडमिन)\n"
         "नीचे दिए गए बटन्स का इस्तेमाल करके कंट्रोल करें:",
         reply_markup=main_keyboard()
     )
 
-@bot.on_callback_query(filters.user(ADMIN_ID))
+@bot.on_callback_query()
 async def callback_handler(client, query):
+    user_id = query.from_user.id
+    if ADMIN_ID != 0 and user_id != ADMIN_ID:
+        await query.answer("❌ आप एडमिन नहीं हैं!", show_alert=True)
+        return
+
     data = query.data
 
     if data == "start_all":
@@ -131,8 +154,15 @@ async def callback_handler(client, query):
         await query.answer("🚪 सारे sessions logout हो गए!", show_alert=True)
         await query.message.edit_reply_markup(reply_markup=main_keyboard())
 
-@bot.on_message(filters.user(ADMIN_ID) & filters.reply)
+@bot.on_message(filters.reply)
 async def handle_replies(client, message):
+    user_id = message.from_user.id
+    if ADMIN_ID != 0 and user_id != ADMIN_ID:
+        return
+
+    if not message.reply_to_message or not message.reply_to_message.text:
+        return
+
     reply_text = message.reply_to_message.text
 
     if "broadcast message" in reply_text.lower():
