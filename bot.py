@@ -4,7 +4,7 @@ import logging
 from threading import Thread
 from flask import Flask
 from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ForceReply
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram.handlers import MessageHandler
 from pyrogram.errors import SessionPasswordNeeded, PhoneCodeInvalid, PasswordHashInvalid
 
@@ -50,20 +50,19 @@ bot = Client(
 
 user_sessions = {}
 temp_login = {}
+user_states = {}  # User state management for reply-free input
 
 broadcast_config = {
     "message": None,
     "interval": 60,
     "is_running": False,
     "sent_count": 0,
-    "dm_message": None,
-    "dm_enabled": False
+    "dm_message": None
 }
 
 broadcast_task = None
 
 def main_keyboard():
-    dm_status = "On 🟢" if broadcast_config.get("dm_enabled") else "Off 🔴"
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton("▶️ Start", callback_data="start_all"),
@@ -78,11 +77,23 @@ def main_keyboard():
             InlineKeyboardButton("🗑️ Del Msg", callback_data="del_msg")
         ],
         [
-            InlineKeyboardButton("🤖 DM Msg", callback_data="set_dm_msg"),
-            InlineKeyboardButton(f"⚙️ DM: {dm_status}", callback_data="toggle_dm")
+            InlineKeyboardButton("🤖 DM Msg", callback_data="dm_menu"),
+            InlineKeyboardButton("⏱️ Set Time", callback_data="set_time")
+        ]
+    ])
+
+def dm_keyboard():
+    dm_preview = "✅ Set" if broadcast_config.get("dm_message") else "❌ Not Set"
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(f"Status: {dm_preview}", callback_data="noop")
         ],
         [
-            InlineKeyboardButton("⏱️ Set Time", callback_data="set_time")
+            InlineKeyboardButton("➕ Set DM", callback_data="set_dm_msg"),
+            InlineKeyboardButton("🗑️ Del DM", callback_data="del_dm_msg")
+        ],
+        [
+            InlineKeyboardButton("🔙 Back", callback_data="back_home")
         ]
     ])
 
@@ -96,8 +107,6 @@ def logout_keyboard():
 def get_dashboard_text():
     status = "On 🟢" if broadcast_config["is_running"] else "Off 🔴"
     msg_preview = "Set ✅" if broadcast_config["message"] else "Not Set ❌"
-    dm_stat = "On 🟢" if broadcast_config.get("dm_enabled") else "Off 🔴"
-    dm_msg_preview = "Set ✅" if broadcast_config.get("dm_message") else "Not Set ❌"
     sent_total = broadcast_config.get("sent_count", 0)
     active_acc = len(user_sessions)
     
@@ -107,15 +116,14 @@ def get_dashboard_text():
         f"📊 **Status:** {status}\n"
         f"📨 **Sent Messages:** `{sent_total}`\n"
         f"📱 **Active Accounts:** `{active_acc}`\n"
-        f"💬 **Broadcast Msg:** {msg_preview}\n"
-        f"🤖 **Auto DM:** {dm_stat} | **DM Msg:** {dm_msg_preview}\n"
+        f"💬 **Message:** {msg_preview}\n"
         f"⏱️ **Interval:** `{broadcast_config['interval']}s`\n"
         "━━━━━━━━━━━━━━━"
     )
 
-# Incoming DM Auto-Reply Handler function
+# Incoming DM Auto-Reply Handler
 async def handle_incoming_dm(client, message):
-    if broadcast_config.get("dm_enabled") and broadcast_config.get("dm_message"):
+    if broadcast_config.get("dm_message"):
         if message.chat.type.name == "PRIVATE":
             try:
                 await message.reply_text(broadcast_config["dm_message"])
@@ -125,6 +133,7 @@ async def handle_incoming_dm(client, message):
 @bot.on_message(filters.command("start"))
 async def start_command(client, message):
     user_id = message.from_user.id
+    user_states.pop(user_id, None)
     logging.info(f"Received /start from User ID: {user_id}")
     
     if ADMIN_ID != 0 and user_id != ADMIN_ID:
@@ -141,6 +150,10 @@ async def callback_handler(client, query):
         return
 
     data = query.data
+
+    if data == "noop":
+        await query.answer()
+        return
 
     if data == "start_all":
         if not broadcast_config["message"]:
@@ -169,19 +182,23 @@ async def callback_handler(client, query):
         await query.message.edit_text(get_dashboard_text(), reply_markup=main_keyboard())
 
     elif data == "set_msg":
-        await query.message.reply_text("📝 **Send Broadcast Message:**", reply_markup=ForceReply(True))
+        user_states[user_id] = "waiting_broadcast_msg"
+        await query.message.reply_text("📝 **Naya Broadcast Message bhejye:**\n*(Bina reply kiye seedha type karke bhejein)*")
+        await query.answer()
+
+    elif data == "dm_menu":
+        await query.message.edit_text("🤖 **Auto DM Menu:**\nApna Auto DM message set ya delete karein.", reply_markup=dm_keyboard())
         await query.answer()
 
     elif data == "set_dm_msg":
-        await query.message.reply_text("🤖 **Send Auto DM Reply Message:**", reply_markup=ForceReply(True))
+        user_states[user_id] = "waiting_dm_msg"
+        await query.message.reply_text("🤖 **Naya Auto DM Message bhejye:**\n*(Bina reply kiye seedha type karke bhejein)*")
         await query.answer()
 
-    elif data == "toggle_dm":
-        current_state = broadcast_config.get("dm_enabled", False)
-        broadcast_config["dm_enabled"] = not current_state
-        state_text = "enabled" if broadcast_config["dm_enabled"] else "disabled"
-        await query.answer(f"🤖 Auto DM is now {state_text}!", show_alert=True)
-        await query.message.edit_text(get_dashboard_text(), reply_markup=main_keyboard())
+    elif data == "del_dm_msg":
+        broadcast_config["dm_message"] = None
+        await query.answer("🗑️ Auto DM message deleted!", show_alert=True)
+        await query.message.edit_text("🤖 **Auto DM Menu:**\nApna Auto DM message set ya delete karein.", reply_markup=dm_keyboard())
 
     elif data == "del_msg":
         broadcast_config["message"] = None
@@ -189,11 +206,13 @@ async def callback_handler(client, query):
         await query.message.edit_text(get_dashboard_text(), reply_markup=main_keyboard())
 
     elif data == "set_time":
-        await query.message.reply_text("⏱️ **Send Interval in Seconds (e.g. 60):**", reply_markup=ForceReply(True))
+        user_states[user_id] = "waiting_interval"
+        await query.message.reply_text("⏱️ **Interval time seconds me bhejye (jaise 60, 120):**\n*(Bina reply kiye seedha type karke bhejein)*")
         await query.answer()
 
     elif data == "login_session":
-        await query.message.reply_text("📱 **Send Phone Number (+91...):**", reply_markup=ForceReply(True))
+        user_states[user_id] = "waiting_phone"
+        await query.message.reply_text("📱 **Phone Number bhejye (+91...):**\n*(Bina reply kiye seedha type karke bhejein)*")
         await query.answer()
 
     elif data == "logout_menu":
@@ -219,35 +238,45 @@ async def callback_handler(client, query):
             await query.message.edit_text(get_dashboard_text(), reply_markup=main_keyboard())
 
     elif data == "back_home":
+        user_states.pop(user_id, None)
         await query.message.edit_text(get_dashboard_text(), reply_markup=main_keyboard())
 
-@bot.on_message(filters.reply)
-async def handle_replies(client, message):
+@bot.on_message(filters.text & ~filters.command("start"))
+async def handle_text_inputs(client, message):
     user_id = message.from_user.id
     if ADMIN_ID != 0 and user_id != ADMIN_ID:
         return
 
-    if not message.reply_to_message or not message.reply_to_message.text:
-        return
+    state = user_states.get(user_id)
+    if not state:
+        return  # Agar koi state active nahi hai toh ignore karega
 
-    reply_text = message.reply_to_message.text.lower()
+    text = message.text.strip()
 
-    if "send broadcast message" in reply_text:
+    # 1. Broadcast Message State
+    if state == "waiting_broadcast_msg":
         broadcast_config["message"] = message.text
-        await message.reply_text("✅ **Broadcast Message Saved!**", reply_markup=main_keyboard())
+        user_states.pop(user_id, None)
+        await message.reply_text("✅ **Broadcast Message Save Ho Gaya!**", reply_markup=main_keyboard())
 
-    elif "send auto dm reply message" in reply_text:
+    # 2. Auto DM Message State
+    elif state == "waiting_dm_msg":
         broadcast_config["dm_message"] = message.text
-        broadcast_config["dm_enabled"] = True
-        await message.reply_text("✅ **Auto DM Message Saved & Enabled!**", reply_markup=main_keyboard())
+        user_states.pop(user_id, None)
+        await message.reply_text("✅ **Auto DM Message Save Ho Gaya!**", reply_markup=dm_keyboard())
 
-    elif "send interval in seconds" in reply_text:
-        if message.text.isdigit():
-            broadcast_config["interval"] = int(message.text)
-            await message.reply_text(f"⏱️ **Interval Set: {message.text}s**", reply_markup=main_keyboard())
+    # 3. Interval Time State
+    elif state == "waiting_interval":
+        if text.isdigit():
+            broadcast_config["interval"] = int(text)
+            user_states.pop(user_id, None)
+            await message.reply_text(f"⏱️ **Interval Set Ho Gaya: {text}s**", reply_markup=main_keyboard())
+        else:
+            await message.reply_text("❌ Kripya sirf valid number bhejen (jaise 60):")
 
-    elif "send phone number" in reply_text:
-        phone = message.text.strip().replace(" ", "")
+    # 4. Phone Number State
+    elif state == "waiting_phone":
+        phone = text.replace(" ", "")
         temp_login["phone"] = phone
         
         user_client = Client(
@@ -265,58 +294,67 @@ async def handle_replies(client, message):
             code_hash = await user_client.send_code(phone)
             temp_login["client"] = user_client
             temp_login["phone_code_hash"] = code_hash.phone_code_hash
-            await message.reply_text("📩 **Send Login OTP:**\n*(Tip: Use spaces e.g. `1 2 3 4 5`)*", reply_markup=ForceReply(True))
+            user_states[user_id] = "waiting_otp"
+            await message.reply_text("📩 **OTP Bhej Diya Gaya Hai!**\nTelegram par aaya hua OTP bhejen (jaise `1 2 3 4 5`):")
         except Exception as e:
+            user_states.pop(user_id, None)
             await message.reply_text(f"❌ Error: `{str(e)}`")
 
-    elif "send login otp" in reply_text:
-        otp = message.text.replace(" ", "").strip()
+    # 5. OTP State
+    elif state == "waiting_otp":
+        otp = text.replace(" ", "")
         user_client = temp_login.get("client")
         phone = temp_login.get("phone")
         
         if not user_client or not phone:
-            await message.reply_text("❌ Session reset. Try again.")
+            user_states.pop(user_id, None)
+            await message.reply_text("❌ Session reset ho gaya. Dobara try karein.")
             return
 
         try:
             await user_client.sign_in(phone, temp_login["phone_code_hash"], otp)
-            # Register incoming DM handler for this user client
             user_client.add_handler(MessageHandler(handle_incoming_dm, filters.private & ~filters.me))
             user_sessions[phone] = user_client
             temp_login.clear()
-            await message.reply_text(f"🎉 **{phone} Logged In Successfully!**", reply_markup=main_keyboard())
+            user_states.pop(user_id, None)
+            await message.reply_text(f"🎉 **{phone} Safalataपूर्वक Login Ho Gaya!**", reply_markup=main_keyboard())
 
         except SessionPasswordNeeded:
-            await message.reply_text("🔐 **Send 2-Step Verification Password:**", reply_markup=ForceReply(True))
+            user_states[user_id] = "waiting_2fa"
+            await message.reply_text("🔐 **2-Step Verification Password Laga Hua Hai!**\nApna 2FA password bhejen:")
 
         except PhoneCodeInvalid:
-            await message.reply_text("❌ Invalid OTP! Try again.")
+            await message.reply_text("❌ **Galat OTP!** Sahi OTP dobara bhejen:")
 
         except Exception as e:
-            await message.reply_text(f"❌ OTP Error: `{str(e)}`")
+            user_states.pop(user_id, None)
+            await message.reply_text(f"❌ **OTP Error:** `{str(e)}`")
 
-    elif "send 2-step verification password" in reply_text:
+    # 6. 2FA Password State
+    elif state == "waiting_2fa":
         password = message.text.strip()
         user_client = temp_login.get("client")
         phone = temp_login.get("phone")
 
         if not user_client or not phone:
-            await message.reply_text("❌ Session timeout. Retry again.")
+            user_states.pop(user_id, None)
+            await message.reply_text("❌ Session timeout ho gaya. Dobara try karein.")
             return
 
         try:
             await user_client.check_password(password)
-            # Register incoming DM handler for this user client
             user_client.add_handler(MessageHandler(handle_incoming_dm, filters.private & ~filters.me))
             user_sessions[phone] = user_client
             temp_login.clear()
-            await message.reply_text(f"🎉 **{phone} Logged In with 2FA!**", reply_markup=main_keyboard())
+            user_states.pop(user_id, None)
+            await message.reply_text(f"🎉 **{phone} 2FA ke sath Login Ho Gaya!**", reply_markup=main_keyboard())
 
         except PasswordHashInvalid:
-            await message.reply_text("❌ Incorrect Password! Try again:", reply_markup=ForceReply(True))
+            await message.reply_text("❌ **Galat Password!** Sahi password dobara bhejen:")
 
         except Exception as e:
-            await message.reply_text(f"❌ Password Error: `{str(e)}`")
+            user_states.pop(user_id, None)
+            await message.reply_text(f"❌ **Password Error:** `{str(e)}`")
 
 async def run_broadcast():
     while broadcast_config["is_running"]:
