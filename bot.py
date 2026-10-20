@@ -5,12 +5,12 @@ from flask import Flask
 from pyrogram import Client, filters, idle
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ForceReply
 
-# ==================== CONFIGURATION ==================== #
-BOT_TOKEN = "8948185417:AAELFyo_-xV_34NpLFoMYOOLS1ilYb0Bmyo"  # अपना Bot Token डालें
-API_ID = 30694477                   # अपनी API ID डालें
-API_HASH = "13ab444dda105878ce293b7da83b3c5a"    # अपना API Hash डालें
-ADMIN_ID = 8948122874                # अपनी Telegram User ID डालें
-# ======================================================= #
+# ==================== CONFIGURATION FROM ENVIRONMENT ==================== #
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+API_ID = int(os.getenv("API_ID", "0"))
+API_HASH = os.getenv("API_HASH")
+ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
+# ======================================================================== #
 
 logging.basicConfig(level=logging.INFO)
 
@@ -187,13 +187,11 @@ async def run_broadcast():
         await asyncio.sleep(broadcast_config["interval"])
 
 async def main():
-    # Flask Web Server ko background thread me chalana
     import threading
     t = threading.Thread(target=run_flask)
     t.daemon = True
     t.start()
 
-    # Bot start karna
     await bot.start()
     logging.info("Bot started successfully!")
     await idle()
