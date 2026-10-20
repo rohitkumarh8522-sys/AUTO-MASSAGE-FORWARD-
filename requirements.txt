@@ -1,3 +1,1 @@
-pyrogram
-tgcrypto
-flask
+python-3.11.9
