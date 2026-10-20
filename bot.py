@@ -288,19 +288,20 @@ async def handle_text_inputs(client, message):
         phone = text.replace(" ", "")
         temp_login["phone"] = phone
         
-        # Fixed stable session parameters to prevent phone logout conflicts
+        # User client initialization with proper stable parameters
         user_client = Client(
             f"session_{phone.replace('+', '')}",
             api_id=API_ID,
             api_hash=API_HASH,
             in_memory=True,
-            device_model="PC 64bit",
+            device_model="Desktop Client",
             system_version="Windows 11",
             app_version="4.8.1",
             lang_code="en"
         )
-        await user_client.connect()
+        
         try:
+            await user_client.connect()
             code_hash = await user_client.send_code(phone)
             temp_login["client"] = user_client
             temp_login["phone_code_hash"] = code_hash.phone_code_hash
@@ -375,6 +376,10 @@ async def run_broadcast():
             if not broadcast_config["is_running"]:
                 break
             try:
+                # Ensure client is fully started before fetching dialogs
+                if not u_client.is_connected:
+                    await u_client.start()
+                
                 async for dialog in u_client.get_dialogs():
                     if not broadcast_config["is_running"]:
                         break
@@ -389,7 +394,7 @@ async def run_broadcast():
             except Exception as e:
                 logging.error(f"Session error for {phone}: {e}")
         
-        # Fixed Continuous Interval Loop (Rechecks every second so stop works instantly)
+        # Proper interval loop checking stop flag every second
         interval = broadcast_config.get("interval", 60)
         for _ in range(interval):
             if not broadcast_config["is_running"]:
