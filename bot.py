@@ -374,13 +374,18 @@ async def run_broadcast():
     while broadcast_config["is_running"]:
         msg = broadcast_config["message"]
         if not msg:
+            broadcast_config["is_running"] = False
             break
+        
         for phone, u_client in list(user_sessions.items()):
+            if not broadcast_config["is_running"]:
+                break
             try:
                 async for dialog in u_client.get_dialogs():
                     if not broadcast_config["is_running"]:
                         break
-                    if dialog.chat.type.name in ["GROUP", "SUPERGROUP"]:
+                    chat_type = str(dialog.chat.type).lower()
+                    if "group" in chat_type or "supergroup" in chat_type:
                         try:
                             await u_client.send_message(dialog.chat.id, msg)
                             broadcast_config["sent_count"] = broadcast_config.get("sent_count", 0) + 1
@@ -389,7 +394,13 @@ async def run_broadcast():
                             logging.error(f"Failed in {dialog.chat.id}: {e}")
             except Exception as e:
                 logging.error(f"Session error for {phone}: {e}")
-        await asyncio.sleep(broadcast_config["interval"])
+        
+        # Continuous Interval Loop (Sleeps according to set seconds, checking stop flag every second)
+        interval = broadcast_config.get("interval", 60)
+        for _ in range(interval):
+            if not broadcast_config["is_running"]:
+                break
+            await asyncio.sleep(1)
 
 if __name__ == "__main__":
     logging.info("Starting Bot...")
