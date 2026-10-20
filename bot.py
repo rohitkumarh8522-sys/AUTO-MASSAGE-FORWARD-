@@ -2,19 +2,19 @@ import asyncio
 import logging
 import os
 from flask import Flask
-from pyrogram import Client, filters
+from pyrogram import Client, filters, idle
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ForceReply
 
 # ==================== CONFIGURATION ==================== #
-BOT_TOKEN = "8948185417:AAELFyo_-xV_34NpLFoMYOOLS1ilYb0Bmyo"  # यहाँ अपना Bot Token डालें
-API_ID = 30694477                 # यहाँ अपनी API ID डालें
-API_HASH = "13ab444dda105878ce293b7da83b3c5a"    # यहाँ अपना API Hash डालें
-ADMIN_ID = 8741889602                # यहाँ अपनी Telegram User ID डालें
+BOT_TOKEN = "8948185417:AAELFyo_-xV_34NpLFoMYOOLS1ilYb0Bmyo"  # अपना Bot Token डालें
+API_ID = 30694477                   # अपनी API ID डालें
+API_HASH = "13ab444dda105878ce293b7da83b3c5a"    # अपना API Hash डालें
+ADMIN_ID = 8741889602                 # अपनी Telegram User ID डालें
 # ======================================================= #
 
 logging.basicConfig(level=logging.INFO)
 
-# Flask Web Server (Render के लिए ज़रूरी ताकि बॉट स्लीप न हो)
+# Flask Web Server (Render के लिए)
 app = Flask(__name__)
 
 @app.route('/')
@@ -186,21 +186,18 @@ async def run_broadcast():
                 logging.error(f"Session error {phone}: {e}")
         await asyncio.sleep(broadcast_config["interval"])
 
-if __name__ == "__main__":
+async def main():
+    # Flask Web Server ko background thread me chalana
     import threading
-    import asyncio
-
-    # Python 3.14 / Render ke Event Loop issue ko fix karne ke liye
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-    # Flask ko background thread me chalana
     t = threading.Thread(target=run_flask)
     t.daemon = True
     t.start()
 
-    # Telegram Bot chalana
-    bot.run()
+    # Bot start karna
+    await bot.start()
+    logging.info("Bot started successfully!")
+    await idle()
+    await bot.stop()
+
+if __name__ == "__main__":
+    asyncio.run(main())
