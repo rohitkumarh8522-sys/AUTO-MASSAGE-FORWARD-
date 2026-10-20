@@ -59,29 +59,26 @@ broadcast_config = {
 broadcast_task = None
 
 def main_keyboard():
-    status = "🟢 ON" if broadcast_config["is_running"] else "🔴 OFF"
-    msg_status = "✅ YES" if broadcast_config["message"] else "❌ NO"
-    active_count = len(user_sessions)
+    status = "On 🟢" if broadcast_config["is_running"] else "Off 🔴"
+    msg_set = "Yes ✅" if broadcast_config["message"] else "No ❌"
+    acc_count = len(user_sessions)
     
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("▶️ START", callback_data="start_all"),
-            InlineKeyboardButton("⏹️ STOP", callback_data="stop_all")
+            InlineKeyboardButton("▶️ Start", callback_data="start_all"),
+            InlineKeyboardButton("⏹️ Stop", callback_data="stop_all")
         ],
         [
-            InlineKeyboardButton("➕ ADD ACC", callback_data="login_session"),
-            InlineKeyboardButton("📝 MSG", callback_data="set_msg"),
-            InlineKeyboardButton("⏱️ TIME", callback_data="set_time")
+            InlineKeyboardButton("➕ Add", callback_data="login_session"),
+            InlineKeyboardButton("📝 Msg", callback_data="set_msg"),
+            InlineKeyboardButton("⏱️ Time", callback_data="set_time")
         ],
         [
-            InlineKeyboardButton("🚪 LOGOUT", callback_data="logout_session"),
-            InlineKeyboardButton("🗑️ DEL MSG", callback_data="del_msg")
+            InlineKeyboardButton("🚪 Logout", callback_data="logout_session"),
+            InlineKeyboardButton("🗑️ Clear", callback_data="del_msg")
         ],
         [
-            InlineKeyboardButton(f"⚙️ STATUS: {status}  |  💬 MSG: {msg_status}", callback_data="status_info")
-        ],
-        [
-            InlineKeyboardButton(f"📱 ACTIVE SESSIONS: {active_count}", callback_data="status_info2")
+            InlineKeyboardButton(f"📊 Status: {status} | Msg: {msg_set} | Acc: {acc_count}", callback_data="status_info")
         ]
     ])
 
@@ -91,18 +88,13 @@ async def start_command(client, message):
     logging.info(f"Received /start from User ID: {user_id}")
     
     if ADMIN_ID != 0 and user_id != ADMIN_ID:
-        await message.reply_text(
-            f"⛔ **ACCESS DENIED**\n\n"
-            f"Your ID: `{user_id}`"
-        )
+        await message.reply_text(f"⛔ **Access Denied**\nYour ID: `{user_id}`")
         return
 
     text = (
-        "⚡ **BROADCASTER PANEL** ⚡\n"
-        "━━━━━⬍⬍━━━━━\n"
-        "Manage accounts & auto-broadcast easily.\n\n"
-        f"👑 **Admin:** `{user_id}`\n"
-        "━━━━━⬍⬍━━━━━"
+        "⚡ **Broadcaster Panel** ⚡\n"
+        "━━━━━━━━━━━━━━━\n"
+        "Manage your sessions & broadcasts smoothly."
     )
 
     await message.reply_text(text, reply_markup=main_keyboard())
@@ -118,7 +110,7 @@ async def callback_handler(client, query):
 
     if data == "start_all":
         if not broadcast_config["message"]:
-            await query.answer("❌ Message set nahi hai!", show_alert=True)
+            await query.answer("❌ Pehle message set karein!", show_alert=True)
             return
         if not user_sessions:
             await query.answer("❌ Koi session login nahi hai!", show_alert=True)
@@ -143,10 +135,7 @@ async def callback_handler(client, query):
         await query.message.edit_text("🛑 **Broadcasting Stopped!**", reply_markup=main_keyboard())
 
     elif data == "set_msg":
-        await query.message.reply_text(
-            "📝 **Send Broadcast Message:**",
-            reply_markup=ForceReply(True)
-        )
+        await query.message.reply_text("📝 **Send Broadcast Message:**", reply_markup=ForceReply(True))
         await query.answer()
 
     elif data == "del_msg":
@@ -155,17 +144,11 @@ async def callback_handler(client, query):
         await query.message.edit_reply_markup(reply_markup=main_keyboard())
 
     elif data == "set_time":
-        await query.message.reply_text(
-            "⏱️ **Send Interval in Seconds (e.g. 60, 120):**",
-            reply_markup=ForceReply(True)
-        )
+        await query.message.reply_text("⏱️ **Send Interval in Seconds (e.g. 60):**", reply_markup=ForceReply(True))
         await query.answer()
 
     elif data == "login_session":
-        await query.message.reply_text(
-            "📱 **Send Phone Number (+91...):**",
-            reply_markup=ForceReply(True)
-        )
+        await query.message.reply_text("📱 **Send Phone Number (+91...):**", reply_markup=ForceReply(True))
         await query.answer()
 
     elif data == "logout_session":
@@ -196,24 +179,32 @@ async def handle_replies(client, message):
         broadcast_config["message"] = message.text
         await message.reply_text("✅ **Message Saved!**", reply_markup=main_keyboard())
 
-    elif "interval in seconds" in reply_text:
+    elif "send interval in seconds" in reply_text:
         if message.text.isdigit():
             broadcast_config["interval"] = int(message.text)
             await message.reply_text(f"⏱️ **Interval Set: {message.text}s**", reply_markup=main_keyboard())
 
-    elif "phone number" in reply_text:
+    elif "send phone number" in reply_text:
         phone = message.text.strip().replace(" ", "")
         temp_login["phone"] = phone
-        user_client = Client(f"session_{phone}", api_id=API_ID, api_hash=API_HASH, in_memory=True)
+        
+        # Yahan safe parameters add kiye hain taaki phone device logout na ho
+        user_client = Client(
+            f"session_{phone}",
+            api_id=API_ID,
+            api_hash=API_HASH,
+            in_memory=True,
+            device_model="Desktop Client",
+            system_version="Windows 11",
+            app_version="4.8.1",
+            lang_code="en"
+        )
         await user_client.connect()
         try:
             code_hash = await user_client.send_code(phone)
             temp_login["client"] = user_client
             temp_login["phone_code_hash"] = code_hash.phone_code_hash
-            await message.reply_text(
-                "📩 **Send Login OTP:**\n*(Tip: Use spaces e.g. `1 2 3 4 5`)*",
-                reply_markup=ForceReply(True)
-            )
+            await message.reply_text("📩 **Send Login OTP:**\n*(Tip: Use spaces e.g. `1 2 3 4 5`)*", reply_markup=ForceReply(True))
         except Exception as e:
             await message.reply_text(f"❌ Error: `{str(e)}`")
 
@@ -230,13 +221,10 @@ async def handle_replies(client, message):
             await user_client.sign_in(phone, temp_login["phone_code_hash"], otp)
             user_sessions[phone] = user_client
             temp_login.clear()
-            await message.reply_text(f"🎉 **{phone} Logged In!**", reply_markup=main_keyboard())
+            await message.reply_text(f"🎉 **{phone} Logged In Successfully!**", reply_markup=main_keyboard())
 
         except SessionPasswordNeeded:
-            await message.reply_text(
-                "🔐 **Send 2-Step Verification Password:**",
-                reply_markup=ForceReply(True)
-            )
+            await message.reply_text("🔐 **Send 2-Step Verification Password:**", reply_markup=ForceReply(True))
 
         except PhoneCodeInvalid:
             await message.reply_text("❌ Invalid OTP! Try again.")
@@ -244,7 +232,7 @@ async def handle_replies(client, message):
         except Exception as e:
             await message.reply_text(f"❌ OTP Error: `{str(e)}`")
 
-    elif "2-step verification password" in reply_text:
+    elif "send 2-step verification password" in reply_text:
         password = message.text.strip()
         user_client = temp_login.get("client")
         phone = temp_login.get("phone")
