@@ -50,8 +50,8 @@ bot = Client(
 
 user_sessions = {}
 temp_login = {}
-user_states = {}        # User state management
-user_panel_msg = {}     # Tracks main panel message ID per user
+user_states = {}        
+user_panel_msg = {}     
 
 broadcast_config = {
     "message": None,
@@ -248,7 +248,6 @@ async def handle_text_inputs(client, message):
     if not state:
         return
 
-    # Delete user's input message instantly to keep chat clean
     try:
         await message.delete()
     except:
@@ -267,19 +266,16 @@ async def handle_text_inputs(client, message):
         sent = await client.send_message(message.chat.id, new_text, reply_markup=markup)
         user_panel_msg[user_id] = sent.id
 
-    # 1. Broadcast Message State
     if state == "waiting_broadcast_msg":
         broadcast_config["message"] = message.text
         user_states.pop(user_id, None)
         await update_panel(get_dashboard_text(), main_keyboard())
 
-    # 2. Auto DM Message State
     elif state == "waiting_dm_msg":
         broadcast_config["dm_message"] = message.text
         user_states.pop(user_id, None)
         await update_panel("🤖 **Auto DM Menu:**", dm_keyboard())
 
-    # 3. Interval Time State
     elif state == "waiting_interval":
         if text.isdigit():
             broadcast_config["interval"] = int(text)
@@ -288,17 +284,17 @@ async def handle_text_inputs(client, message):
         else:
             await update_panel("❌ Kripya sirf valid number bhejen (jaise 60):", InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Cancel", callback_data="back_home")]]))
 
-    # 4. Phone Number State
     elif state == "waiting_phone":
         phone = text.replace(" ", "")
         temp_login["phone"] = phone
         
+        # Fixed stable session parameters to prevent phone logout conflicts
         user_client = Client(
-            f"session_{phone}",
+            f"session_{phone.replace('+', '')}",
             api_id=API_ID,
             api_hash=API_HASH,
             in_memory=True,
-            device_model="Desktop Client",
+            device_model="PC 64bit",
             system_version="Windows 11",
             app_version="4.8.1",
             lang_code="en"
@@ -314,7 +310,6 @@ async def handle_text_inputs(client, message):
             user_states.pop(user_id, None)
             await update_panel(f"❌ Error: `{str(e)}`", main_keyboard())
 
-    # 5. OTP State
     elif state == "waiting_otp":
         otp = text.replace(" ", "")
         user_client = temp_login.get("client")
@@ -344,7 +339,6 @@ async def handle_text_inputs(client, message):
             user_states.pop(user_id, None)
             await update_panel(f"❌ Error: `{str(e)}`", main_keyboard())
 
-    # 6. 2FA Password State
     elif state == "waiting_2fa":
         password = message.text.strip()
         user_client = temp_login.get("client")
@@ -395,7 +389,7 @@ async def run_broadcast():
             except Exception as e:
                 logging.error(f"Session error for {phone}: {e}")
         
-        # Continuous Interval Loop (Sleeps according to set seconds, checking stop flag every second)
+        # Fixed Continuous Interval Loop (Rechecks every second so stop works instantly)
         interval = broadcast_config.get("interval", 60)
         for _ in range(interval):
             if not broadcast_config["is_running"]:
