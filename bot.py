@@ -53,34 +53,55 @@ temp_login = {}
 broadcast_config = {
     "message": None,
     "interval": 60,
-    "is_running": False
+    "is_running": False,
+    "sent_count": 0
 }
 
 broadcast_task = None
 
 def main_keyboard():
     status = "On 🟢" if broadcast_config["is_running"] else "Off 🔴"
-    msg_set = "Yes ✅" if broadcast_config["message"] else "No ❌"
-    acc_count = len(user_sessions)
-    
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton("▶️ Start", callback_data="start_all"),
             InlineKeyboardButton("⏹️ Stop", callback_data="stop_all")
         ],
         [
-            InlineKeyboardButton("➕ Add", callback_data="login_session"),
-            InlineKeyboardButton("📝 Msg", callback_data="set_msg"),
-            InlineKeyboardButton("⏱️ Time", callback_data="set_time")
+            InlineKeyboardButton("🔑 Login", callback_data="login_session"),
+            InlineKeyboardButton("🚪 Logout", callback_data="logout_menu")
         ],
         [
-            InlineKeyboardButton("🚪 Logout", callback_data="logout_session"),
-            InlineKeyboardButton("🗑️ Clear", callback_data="del_msg")
+            InlineKeyboardButton("📝 Set Msg", callback_data="set_msg"),
+            InlineKeyboardButton("🗑️ Del Msg", callback_data="del_msg")
         ],
         [
-            InlineKeyboardButton(f"📊 Status: {status} | Msg: {msg_set} | Acc: {acc_count}", callback_data="status_info")
+            InlineKeyboardButton("⏱️ Set Time", callback_data="set_time")
         ]
     ])
+
+def logout_keyboard():
+    keyboard = []
+    for phone in user_sessions.keys():
+        keyboard.append([InlineKeyboardButton(f"❌ Logout: {phone}", callback_data=f"logout_acc_{phone}")])
+    keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="back_home")])
+    return InlineKeyboardMarkup(keyboard)
+
+def get_dashboard_text():
+    status = "On 🟢" if broadcast_config["is_running"] else "Off 🔴"
+    msg_preview = "Set ✅" if broadcast_config["message"] else "Not Set ❌"
+    sent_total = broadcast_config.get("sent_count", 0)
+    active_acc = len(user_sessions)
+    
+    return (
+        "⚡ **Broadcaster Panel** ⚡\n"
+        "━━━━━━━━━━━━━━━\n"
+        f"📊 **Status:** {status}\n"
+        f"📨 **Sent Messages:** `{sent_total}`\n"
+        f"📱 **Active Accounts:** `{active_acc}`\n"
+        f"💬 **Message:** {msg_preview}\n"
+        f"⏱️ **Interval:** `{broadcast_config['interval']}s`\n"
+        "━━━━━━━━━━━━━━━"
+    )
 
 @bot.on_message(filters.command("start"))
 async def start_command(client, message):
@@ -91,13 +112,7 @@ async def start_command(client, message):
         await message.reply_text(f"⛔ **Access Denied**\nYour ID: `{user_id}`")
         return
 
-    text = (
-        "⚡ **Broadcaster Panel** ⚡\n"
-        "━━━━━━━━━━━━━━━\n"
-        "Manage your sessions & broadcasts smoothly."
-    )
-
-    await message.reply_text(text, reply_markup=main_keyboard())
+    await message.reply_text(get_dashboard_text(), reply_markup=main_keyboard())
 
 @bot.on_callback_query()
 async def callback_handler(client, query):
@@ -122,7 +137,7 @@ async def callback_handler(client, query):
         broadcast_config["is_running"] = True
         global broadcast_task
         broadcast_task = asyncio.create_task(run_broadcast())
-        await query.message.edit_text("🚀 **Broadcasting Started!**", reply_markup=main_keyboard())
+        await query.message.edit_text(get_dashboard_text(), reply_markup=main_keyboard())
 
     elif data == "stop_all":
         if not broadcast_config["is_running"]:
@@ -132,7 +147,7 @@ async def callback_handler(client, query):
         broadcast_config["is_running"] = False
         if broadcast_task:
             broadcast_task.cancel()
-        await query.message.edit_text("🛑 **Broadcasting Stopped!**", reply_markup=main_keyboard())
+        await query.message.edit_text(get_dashboard_text(), reply_markup=main_keyboard())
 
     elif data == "set_msg":
         await query.message.reply_text("📝 **Send Broadcast Message:**", reply_markup=ForceReply(True))
@@ -141,7 +156,7 @@ async def callback_handler(client, query):
     elif data == "del_msg":
         broadcast_config["message"] = None
         await query.answer("🗑️ Message cleared!", show_alert=True)
-        await query.message.edit_reply_markup(reply_markup=main_keyboard())
+        await query.message.edit_text(get_dashboard_text(), reply_markup=main_keyboard())
 
     elif data == "set_time":
         await query.message.reply_text("⏱️ **Send Interval in Seconds (e.g. 60):**", reply_markup=ForceReply(True))
@@ -151,18 +166,30 @@ async def callback_handler(client, query):
         await query.message.reply_text("📱 **Send Phone Number (+91...):**", reply_markup=ForceReply(True))
         await query.answer()
 
-    elif data == "logout_session":
+    elif data == "logout_menu":
         if not user_sessions:
-            await query.answer("❌ No active sessions!", show_alert=True)
+            await query.answer("❌ Koi active session nahi hai!", show_alert=True)
             return
-        for phone, app_client in list(user_sessions.items()):
+        await query.message.edit_text("🚪 **Select account to logout:**", reply_markup=logout_keyboard())
+        await query.answer()
+
+    elif data.startswith("logout_acc_"):
+        phone = data.replace("logout_acc_", "")
+        if phone in user_sessions:
             try:
-                await app_client.stop()
+                await user_sessions[phone].stop()
             except:
                 pass
-        user_sessions.clear()
-        await query.answer("🚪 All sessions logged out!", show_alert=True)
-        await query.message.edit_reply_markup(reply_markup=main_keyboard())
+            user_sessions.pop(phone, None)
+            await query.answer(f"🚪 {phone} logged out successfully!", show_alert=True)
+        
+        if user_sessions:
+            await query.message.edit_text("🚪 **Select account to logout:**", reply_markup=logout_keyboard())
+        else:
+            await query.message.edit_text(get_dashboard_text(), reply_markup=main_keyboard())
+
+    elif data == "back_home":
+        await query.message.edit_text(get_dashboard_text(), reply_markup=main_keyboard())
 
 @bot.on_message(filters.reply)
 async def handle_replies(client, message):
@@ -188,7 +215,6 @@ async def handle_replies(client, message):
         phone = message.text.strip().replace(" ", "")
         temp_login["phone"] = phone
         
-        # Yahan safe parameters add kiye hain taaki phone device logout na ho
         user_client = Client(
             f"session_{phone}",
             api_id=API_ID,
@@ -261,9 +287,12 @@ async def run_broadcast():
         for phone, u_client in list(user_sessions.items()):
             try:
                 async for dialog in u_client.get_dialogs():
+                    if not broadcast_config["is_running"]:
+                        break
                     if dialog.chat.type.name in ["GROUP", "SUPERGROUP"]:
                         try:
                             await u_client.send_message(dialog.chat.id, msg)
+                            broadcast_config["sent_count"] = broadcast_config.get("sent_count", 0) + 1
                             await asyncio.sleep(2)
                         except Exception as e:
                             logging.error(f"Failed in {dialog.chat.id}: {e}")
