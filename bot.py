@@ -5,6 +5,7 @@ from threading import Thread
 from flask import Flask
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ForceReply
+from pyrogram.handlers import MessageHandler
 from pyrogram.errors import SessionPasswordNeeded, PhoneCodeInvalid, PasswordHashInvalid
 
 # Logging Setup
@@ -54,13 +55,15 @@ broadcast_config = {
     "message": None,
     "interval": 60,
     "is_running": False,
-    "sent_count": 0
+    "sent_count": 0,
+    "dm_message": None,
+    "dm_enabled": False
 }
 
 broadcast_task = None
 
 def main_keyboard():
-    status = "On 🟢" if broadcast_config["is_running"] else "Off 🔴"
+    dm_status = "On 🟢" if broadcast_config.get("dm_enabled") else "Off 🔴"
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton("▶️ Start", callback_data="start_all"),
@@ -73,6 +76,10 @@ def main_keyboard():
         [
             InlineKeyboardButton("📝 Set Msg", callback_data="set_msg"),
             InlineKeyboardButton("🗑️ Del Msg", callback_data="del_msg")
+        ],
+        [
+            InlineKeyboardButton("🤖 DM Msg", callback_data="set_dm_msg"),
+            InlineKeyboardButton(f"⚙️ DM: {dm_status}", callback_data="toggle_dm")
         ],
         [
             InlineKeyboardButton("⏱️ Set Time", callback_data="set_time")
@@ -89,6 +96,8 @@ def logout_keyboard():
 def get_dashboard_text():
     status = "On 🟢" if broadcast_config["is_running"] else "Off 🔴"
     msg_preview = "Set ✅" if broadcast_config["message"] else "Not Set ❌"
+    dm_stat = "On 🟢" if broadcast_config.get("dm_enabled") else "Off 🔴"
+    dm_msg_preview = "Set ✅" if broadcast_config.get("dm_message") else "Not Set ❌"
     sent_total = broadcast_config.get("sent_count", 0)
     active_acc = len(user_sessions)
     
@@ -98,10 +107,20 @@ def get_dashboard_text():
         f"📊 **Status:** {status}\n"
         f"📨 **Sent Messages:** `{sent_total}`\n"
         f"📱 **Active Accounts:** `{active_acc}`\n"
-        f"💬 **Message:** {msg_preview}\n"
+        f"💬 **Broadcast Msg:** {msg_preview}\n"
+        f"🤖 **Auto DM:** {dm_stat} | **DM Msg:** {dm_msg_preview}\n"
         f"⏱️ **Interval:** `{broadcast_config['interval']}s`\n"
         "━━━━━━━━━━━━━━━"
     )
+
+# Incoming DM Auto-Reply Handler function
+async def handle_incoming_dm(client, message):
+    if broadcast_config.get("dm_enabled") and broadcast_config.get("dm_message"):
+        if message.chat.type.name == "PRIVATE":
+            try:
+                await message.reply_text(broadcast_config["dm_message"])
+            except Exception as e:
+                logging.error(f"Failed to send Auto DM reply: {e}")
 
 @bot.on_message(filters.command("start"))
 async def start_command(client, message):
@@ -125,7 +144,7 @@ async def callback_handler(client, query):
 
     if data == "start_all":
         if not broadcast_config["message"]:
-            await query.answer("❌ Pehle message set karein!", show_alert=True)
+            await query.answer("❌ Pehle broadcast message set karein!", show_alert=True)
             return
         if not user_sessions:
             await query.answer("❌ Koi session login nahi hai!", show_alert=True)
@@ -141,7 +160,7 @@ async def callback_handler(client, query):
 
     elif data == "stop_all":
         if not broadcast_config["is_running"]:
-            await query.answer("⚠️ Broadcast stopped hai!", show_alert=True)
+            await query.answer("⚠️ Broadcast pehle se stopped hai!", show_alert=True)
             return
         
         broadcast_config["is_running"] = False
@@ -153,9 +172,20 @@ async def callback_handler(client, query):
         await query.message.reply_text("📝 **Send Broadcast Message:**", reply_markup=ForceReply(True))
         await query.answer()
 
+    elif data == "set_dm_msg":
+        await query.message.reply_text("🤖 **Send Auto DM Reply Message:**", reply_markup=ForceReply(True))
+        await query.answer()
+
+    elif data == "toggle_dm":
+        current_state = broadcast_config.get("dm_enabled", False)
+        broadcast_config["dm_enabled"] = not current_state
+        state_text = "enabled" if broadcast_config["dm_enabled"] else "disabled"
+        await query.answer(f"🤖 Auto DM is now {state_text}!", show_alert=True)
+        await query.message.edit_text(get_dashboard_text(), reply_markup=main_keyboard())
+
     elif data == "del_msg":
         broadcast_config["message"] = None
-        await query.answer("🗑️ Message cleared!", show_alert=True)
+        await query.answer("🗑️ Broadcast message cleared!", show_alert=True)
         await query.message.edit_text(get_dashboard_text(), reply_markup=main_keyboard())
 
     elif data == "set_time":
@@ -204,7 +234,12 @@ async def handle_replies(client, message):
 
     if "send broadcast message" in reply_text:
         broadcast_config["message"] = message.text
-        await message.reply_text("✅ **Message Saved!**", reply_markup=main_keyboard())
+        await message.reply_text("✅ **Broadcast Message Saved!**", reply_markup=main_keyboard())
+
+    elif "send auto dm reply message" in reply_text:
+        broadcast_config["dm_message"] = message.text
+        broadcast_config["dm_enabled"] = True
+        await message.reply_text("✅ **Auto DM Message Saved & Enabled!**", reply_markup=main_keyboard())
 
     elif "send interval in seconds" in reply_text:
         if message.text.isdigit():
@@ -245,6 +280,8 @@ async def handle_replies(client, message):
 
         try:
             await user_client.sign_in(phone, temp_login["phone_code_hash"], otp)
+            # Register incoming DM handler for this user client
+            user_client.add_handler(MessageHandler(handle_incoming_dm, filters.private & ~filters.me))
             user_sessions[phone] = user_client
             temp_login.clear()
             await message.reply_text(f"🎉 **{phone} Logged In Successfully!**", reply_markup=main_keyboard())
@@ -269,6 +306,8 @@ async def handle_replies(client, message):
 
         try:
             await user_client.check_password(password)
+            # Register incoming DM handler for this user client
+            user_client.add_handler(MessageHandler(handle_incoming_dm, filters.private & ~filters.me))
             user_sessions[phone] = user_client
             temp_login.clear()
             await message.reply_text(f"🎉 **{phone} Logged In with 2FA!**", reply_markup=main_keyboard())
