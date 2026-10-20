@@ -9,7 +9,7 @@ from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ForceRepl
 BOT_TOKEN = "8948185417:AAELFyo_-xV_34NpLFoMYOOLS1ilYb0Bmyo"  # अपना Bot Token डालें
 API_ID = 30694477                   # अपनी API ID डालें
 API_HASH = "13ab444dda105878ce293b7da83b3c5a"    # अपना API Hash डालें
-ADMIN_ID = 8741889602                 # अपनी Telegram User ID डालें
+ADMIN_ID = 8948122874                # अपनी Telegram User ID डालें
 # ======================================================= #
 
 logging.basicConfig(level=logging.INFO)
