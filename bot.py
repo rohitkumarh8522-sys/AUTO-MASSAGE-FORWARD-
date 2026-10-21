@@ -288,7 +288,7 @@ async def handle_text_inputs(client, message):
         phone = text.replace(" ", "")
         temp_login["phone"] = phone
         
-        # User client initialization with proper stable parameters
+        # Stable session parameters to prevent account logout
         user_client = Client(
             f"session_{phone.replace('+', '')}",
             api_id=API_ID,
@@ -376,9 +376,8 @@ async def run_broadcast():
             if not broadcast_config["is_running"]:
                 break
             try:
-                # Ensure client is fully started before fetching dialogs
                 if not u_client.is_connected:
-                    await u_client.start()
+                    await u_client.connect()
                 
                 async for dialog in u_client.get_dialogs():
                     if not broadcast_config["is_running"]:
@@ -394,7 +393,7 @@ async def run_broadcast():
             except Exception as e:
                 logging.error(f"Session error for {phone}: {e}")
         
-        # Proper interval loop checking stop flag every second
+        # Perfect interval loop that waits the exact set seconds before repeating
         interval = broadcast_config.get("interval", 60)
         for _ in range(interval):
             if not broadcast_config["is_running"]:
